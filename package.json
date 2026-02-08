@@ -1,0 +1,37 @@
+{
+  "name": "rathole-back",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arthurcorona/rathole-back.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/arthurcorona/rathole-back/issues"
+  },
+  "homepage": "https://github.com/arthurcorona/rathole-back#readme",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^25.2.2",
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/jwt": "^10.0.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.4",
+    "drizzle-orm": "^0.45.1",
+    "fastify": "^5.7.4",
+    "postgres": "^3.4.8",
+    "zod": "^4.3.6"
+  }
+}
