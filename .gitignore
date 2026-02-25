@@ -1,2 +1,6 @@
 .env
 env
+
+seed.ts
+
+reset-password.ts
