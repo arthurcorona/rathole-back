@@ -13,14 +13,10 @@ async function main() {
     database: process.env.DB_NAME,
   });
 
-  // A senha que você quer (que passa no validador do front)
-  const novaSenha = '26121991'; 
-  
-  // 1. Gerar o Hash correto
+  const novaSenha = 'dhjbsafhbsaujovashipnfdcsao haha'; 
   const hash = await bcrypt.hash(novaSenha, 10);
 
   try {
-    // 2. Atualizar no banco (Vamos buscar pelo Username 'Corona' pra não errar o email de novo rs)
     const resultado = await sql`
       UPDATE users 
       SET password_hash = ${hash} 

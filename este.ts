@@ -12,7 +12,6 @@ async function teste() {
 
   console.log(`📡 Tentando conectar em: ${process.env.DB_HOST}:${process.env.DB_PORT}`);
 
-  // Conecta usando o objeto, pegando as variáveis novas
   const sql = postgres({
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),

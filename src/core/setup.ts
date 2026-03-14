@@ -4,15 +4,27 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import rateLimit from '@fastify/rate-limit';
 import path from 'path';
 import fs from 'fs';
 
 async function setup(app: FastifyInstance) {
-  // CORS
+  // CORS — restrito aos seus domínios
   await app.register(cors, { 
-    origin: true,
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:8080',
+      'https://seudominio.com.br',  // TROCAR FUturamente
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
+
+  // Rate Limit
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
   });
 
   // auth JWT
@@ -20,13 +32,15 @@ async function setup(app: FastifyInstance) {
     secret: process.env.JWT_SECRET || 'supersecret' 
   });
 
-  // Upload de Arquivos (Limite 5MB)
+  // Upload de Arquivos (Limite 5MB, 1 arquivo por request)
   await app.register(multipart, {
-    limits: { fileSize: 5 * 1024 * 1024 }
+    limits: { 
+      fileSize: 5 * 1024 * 1024,
+      files: 1,
+    }
   });
 
-  // direorio de uploads pub
-  // process.cwd() garante que a pasta fique na raiz do backend, não dentro de /core
+  // diretório de uploads pub
   const uploadsDir = path.join(process.cwd(), 'uploads'); 
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
@@ -38,5 +52,4 @@ async function setup(app: FastifyInstance) {
   });
 }
 
-// O 'fp' garante que essas configurações funcionem no app inteiro
 export const setupPlugins = fp(setup);
