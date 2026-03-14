@@ -7,6 +7,12 @@ export async function suggestionRoutes(app: FastifyInstance) {
 
     // get 
   app.get('/', async (request) => {
+    let userId: string | null = null;
+    try {
+      await request.jwtVerify();
+      userId = request.user.id;
+    } catch {}
+
     const allSuggestions = await db.query.suggestions.findMany({
       orderBy: [desc(suggestions.upvotes_count)],
       with: {
@@ -14,9 +20,20 @@ export async function suggestionRoutes(app: FastifyInstance) {
       }
     });
 
+    if (!userId) {
+      return allSuggestions.map(s => ({ ...s, has_voted: false }));
+    }
+
+    // Busca todos os votos do user logado
+    const userVotes = await db.query.suggestionVotes.findMany({
+      where: eq(suggestionVotes.user_id, userId)
+    });
+
+    const votedIds = new Set(userVotes.map(v => v.suggestion_id));
+
     return allSuggestions.map(s => ({
       ...s,
-      has_voted: false 
+      has_voted: votedIds.has(s.id)
     }));
   });
 

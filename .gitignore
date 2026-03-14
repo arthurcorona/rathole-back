@@ -4,3 +4,5 @@ env
 seed.ts
 
 reset-password.ts
+
+/uploads
