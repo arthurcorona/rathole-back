@@ -1,11 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
-import { posts, tags, postTags } from '../../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { posts, tags, postTags, comments } from '../../db/schema';
+import { eq, desc,ne, and } from 'drizzle-orm'; //https://orm.drizzle.team/docs/get-started-postgresql
 import { slugify } from '../../utils/stringUtils';
 
+
 export async function postRoutes(app: FastifyInstance) {
-console.error('>>> POSTS ROUTES LOADED <<<');
   // Rota: GET /posts (Público)
 app.get('/', async (request) => {
   let isAdmin = false;
@@ -20,7 +20,9 @@ app.get('/', async (request) => {
   request.log.info({ isAdmin }, '>>> isAdmin');
 
   const allPosts = await db.query.posts.findMany({
-    ...(isAdmin ? {} : { where: eq(posts.status, 'published') }),
+    where: isAdmin 
+      ? ne(posts.status,'deleted')
+      : eq(posts.status,'published'),
     orderBy: [desc(posts.created_at)],
     with: {
       author: { columns: { username: true, avatar_url: true } },
@@ -129,19 +131,18 @@ app.get('/', async (request) => {
 
   // DELETE /posts/:id (Protegido - Admin)
 
-
-  app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
+app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
   const { id } = request.params as { id: string };
 
   try {
-    // deletar primeiro as tags
-    await db.delete(postTags).where(eq(postTags.post_id, id));
-    // deletar post
-    await db.delete(posts).where(eq(posts.id, id));
+    await db.update(posts)
+      .set({ status: 'deleted', deleted_at: new Date() })
+      .where(eq(posts.id, id));
     return reply.send({ message: 'Post deleted successfully' });
   } catch (error) {
     request.log.error(error);
     return reply.status(500).send({ message: 'Error deleting post' });
   }
 });
+
 }

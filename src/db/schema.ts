@@ -20,10 +20,11 @@ export const posts = pgTable('posts', {
   content: text('content'),
   excerpt: text('excerpt'),
   cover_image: text('cover_image'),
-  status: text('status', { enum: ['draft', 'published'] }).default('draft'),
+  status: text('status', { enum: ['draft', 'published','deleted'] }).default('draft'),
   author_id: uuid('author_id').references(() => users.id).notNull(),
   created_at: timestamp('created_at').defaultNow(),
   updated_at: timestamp('updated_at').defaultNow(),
+  deleted_at: timestamp('deleted_at')
 });
 
 export const tags = pgTable('tags', {
