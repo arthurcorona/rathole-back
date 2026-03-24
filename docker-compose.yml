@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: .
+    container_name: rathole_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "3333"
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    external: true
+
+
+
+
+
+
