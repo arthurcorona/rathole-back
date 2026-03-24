@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -9,12 +10,15 @@ import path from 'path';
 import fs from 'fs';
 
 async function setup(app: FastifyInstance) {
+  // Cookie (deve vir antes do JWT)
+  await app.register(cookie);
+
   // CORS — restrito aos seus domínios
-  await app.register(cors, { 
+  await app.register(cors, {
     origin: [
       'http://localhost:5173',
       'http://localhost:8080',
-      'https://seudominio.com.br',  // TROCAR FUturamente
+      'https://rathole.com.br',
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -28,8 +32,15 @@ async function setup(app: FastifyInstance) {
   });
 
   // auth JWT
-  await app.register(jwt, { 
-    secret: process.env.JWT_SECRET || 'supersecret' 
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET não definido no .env');
+  }
+  await app.register(jwt, {
+    secret: process.env.JWT_SECRET,
+    cookie: {
+      cookieName: 'rathole_token',
+      signed: false,
+    },
   });
 
   // Upload de Arquivos (Limite 5MB, 1 arquivo por request)
