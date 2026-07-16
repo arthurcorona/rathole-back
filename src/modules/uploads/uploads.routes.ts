@@ -1,11 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import path from 'path';
-import fs from 'fs';
-import util from 'util';
-import { pipeline } from 'stream';
+import { createClient } from '@supabase/supabase-js';
 import { slugify } from '../../utils/stringUtils';
 
-const pump = util.promisify(pipeline);
+// Cliente Supabase (service_role: só roda no backend, nunca exposto ao browser)
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!,
+);
+const BUCKET = process.env.SUPABASE_BUCKET || 'uploads';
 
 // Tipos permitidos
 const ALLOWED_MIMES = new Set([
@@ -43,37 +46,29 @@ export async function uploadRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'Extensão de arquivo não permitida' });
     }
 
-    // Sanitizar nome — remove qualquer path traversal (../../)
+    // Lê o arquivo em memória (respeitando o limite de 5MB)
+    const buffer = await data.toBuffer();
+    if (data.file.truncated || buffer.length > MAX_FILE_SIZE) {
+      return reply.status(400).send({ message: 'Arquivo muito grande. Máximo: 5MB' });
+    }
+
+    // Sanitiza o nome — sem path traversal nem caracteres estranhos
     const nameWithoutExt = path.basename(data.filename, ext).replace(/[^a-zA-Z0-9_-]/g, '');
     const uniqueFilename = `${Date.now()}-${slugify(nameWithoutExt)}${ext}`;
 
-    // Garante que o destino é dentro de /uploads
-    const uploadsDir = path.resolve(process.cwd(), 'uploads');
-    const saveTo = path.join(uploadsDir, uniqueFilename);
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(uniqueFilename, buffer, {
+        contentType: data.mimetype,
+        upsert: false,
+      });
 
-    // Proteção contra path traversal no destino
-    if (!saveTo.startsWith(uploadsDir)) {
-      return reply.status(400).send({ message: 'Caminho inválido' });
-    }
-
-    try {
-      await pump(data.file, fs.createWriteStream(saveTo));
-
-      // Checa se o stream estourou o limite de tamanho
-      if (data.file.truncated) {
-        // Remove o arquivo incompleto
-        fs.unlinkSync(saveTo);
-        return reply.status(400).send({ message: 'Arquivo muito grande. Máximo: 5MB' });
-      }
-
-      const baseUrl = process.env.API_URL || 'http://localhost:3333';
-      const fileUrl = `${baseUrl}/uploads/${uniqueFilename}`;
-
-      return reply.send({ url: fileUrl });
-
-    } catch (error) {
+    if (error) {
       request.log.error(error);
       return reply.status(500).send({ message: 'Erro ao salvar o arquivo' });
     }
+
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(uniqueFilename);
+    return reply.send({ url: pub.publicUrl });
   });
 }

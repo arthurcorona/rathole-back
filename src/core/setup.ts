@@ -3,18 +3,16 @@ import fp from 'fastify-plugin';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
-import fastifyStatic from '@fastify/static';
 import rateLimit from '@fastify/rate-limit';
-import path from 'path';
-import fs from 'fs';
 
 async function setup(app: FastifyInstance) {
   // CORS — restrito aos seus domínios
-  await app.register(cors, { 
+  await app.register(cors, {
     origin: [
       'http://localhost:5173',
       'http://localhost:8080',
-      'https://seudominio.com.br',  // TROCAR FUturamente
+      'https://rathole.com.br',
+      'https://www.rathole.com.br',
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -28,28 +26,22 @@ async function setup(app: FastifyInstance) {
   });
 
   // auth JWT
-  await app.register(jwt, { 
-    secret: process.env.JWT_SECRET || 'supersecret' 
-  });
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET é obrigatório no .env');
+  }
+  await app.register(jwt, { secret: jwtSecret });
 
   // Upload de Arquivos (Limite 5MB, 1 arquivo por request)
   await app.register(multipart, {
-    limits: { 
+    limits: {
       fileSize: 5 * 1024 * 1024,
       files: 1,
     }
   });
 
-  // diretório de uploads pub
-  const uploadsDir = path.join(process.cwd(), 'uploads'); 
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-
-  await app.register(fastifyStatic, {
-    root: uploadsDir,
-    prefix: '/uploads/',
-  });
+  // Uploads agora vão pro Supabase Storage (ver src/modules/uploads).
+  // O backend é stateless — não serve mais arquivos do disco.
 }
 
 export const setupPlugins = fp(setup);

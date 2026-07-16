@@ -17,6 +17,9 @@ export async function buildApp() {
   await setupPlugins(app);
   await setupDecorators(app);
 
+  // Health check (Render faz ping aqui pra saber se o serviço está de pé)
+  app.get('/health', async () => ({ status: 'ok' }));
+
   app.register(authRoutes, { prefix: '/auth' });
   app.register(postRoutes, { prefix: '/posts' });
   app.register(suggestionRoutes, { prefix: '/suggestions' });

@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   password_hash: text('password_hash').notNull(),
   role: text('role', { enum: ['admin', 'reader'] }).default('reader'),
   avatar_url: text('avatar_url'),
+  email_verified: boolean('email_verified').notNull().default(false),
   created_at: timestamp('created_at').defaultNow(),
 });
 
@@ -50,6 +51,7 @@ export const comments = pgTable('comments', {
   parent_id: uuid('parent_id'), // (threads)
   is_approved: boolean('is_approved').default(true),
   created_at: timestamp('created_at').defaultNow(),
+  deleted_at: timestamp('deleted_at'),
 });
 
 export const suggestions = pgTable('suggestions', {

@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: rathole-back
+    runtime: docker
+    plan: free
+    region: virginia          # região free mais próxima do Brasil
+    healthCheckPath: /health
+    autoDeploy: true          # redeploy a cada push no GitHub
+    envVars:
+      # --- Banco (Supabase Session Pooler, porta 5432) ---
+      - key: DB_HOST
+        sync: false           # aws-0-<regiao>.pooler.supabase.com
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_USER
+        sync: false           # postgres.<project-ref>
+      - key: DB_PASS
+        sync: false           # secret
+      - key: DB_NAME
+        value: postgres
+      # --- Auth / app ---
+      - key: JWT_SECRET
+        sync: false           # secret — GERE UM NOVO
+      - key: API_URL
+        value: https://api.rathole.com.br
+      - key: APP_URL
+        value: https://rathole.com.br
+      # --- Supabase Storage (uploads) ---
+      - key: SUPABASE_URL
+        sync: false           # https://<project-ref>.supabase.co
+      - key: SUPABASE_SERVICE_KEY
+        sync: false           # secret (service_role)
+      - key: SUPABASE_BUCKET
+        value: uploads
+      # --- Email ---
+      - key: RESEND_API_KEY
+        sync: false           # secret

@@ -11,6 +11,6 @@ export default defineConfig({
     password: process.env.DB_PASS!,
     database: process.env.DB_NAME!,
     port: Number(process.env.DB_PORT!),
-    ssl: false, // Homelab geralmente não usa SSL interno
+    ssl: 'require', // Supabase exige conexão TLS
   },
 });

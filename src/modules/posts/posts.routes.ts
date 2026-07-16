@@ -1,8 +1,15 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
-import { posts, tags, postTags, comments } from '../../db/schema';
-import { eq, desc,ne, and } from 'drizzle-orm'; //https://orm.drizzle.team/docs/get-started-postgresql
+import { posts, tags, postTags } from '../../db/schema';
+import { eq, desc, ne, and } from 'drizzle-orm';
 import { slugify } from '../../utils/stringUtils';
+import {
+  slugParamSchema,
+  uuidParamSchema,
+  postCreateSchema,
+  postUpdateSchema,
+  validate,
+} from '../../core/validation';
 
 
 export async function postRoutes(app: FastifyInstance) {
@@ -36,69 +43,85 @@ app.get('/', async (request) => {
   }));
 });
 
-  // GET /posts/:slug (Público)
+  // GET /posts/:slug (Público para published; admin vê draft/published)
   app.get('/:slug', async (request, reply) => {
-    const { slug } = request.params as { slug: string };
+    const params = validate(slugParamSchema, request.params, reply);
+    if (!params) return;
+
+    let isAdmin = false;
+    try {
+      await request.jwtVerify();
+      isAdmin = request.user?.role === 'admin';
+    } catch {}
 
     const post = await db.query.posts.findFirst({
-      where: eq(posts.slug, slug),
+      where: isAdmin
+        ? and(eq(posts.slug, params.slug), ne(posts.status, 'deleted'))
+        : and(eq(posts.slug, params.slug), eq(posts.status, 'published')),
       with: {
         author: { columns: { username: true, avatar_url: true } },
-        postTags: { with: { tag: true } }
-      }
+        postTags: { with: { tag: true } },
+      },
     });
 
     if (!post) return reply.status(404).send({ message: 'Post not found' });
 
     return {
       ...post,
-      tags: post.postTags.map((pt) => pt.tag)
+      tags: post.postTags.map((pt) => pt.tag),
     };
   });
 
   // POST /posts (Protegido - Admin)
   app.post('/', { onRequest: [app.requireAdmin] }, async (request, reply) => {
-    const { title, slug, content, excerpt, cover_image, status, tags: tagNames } = request.body as any;
-    const finalSlug = slug || slugify(title);
+    const data = validate(postCreateSchema, request.body, reply);
+    if (!data) return;
+
+    const finalSlug = data.slug || slugify(data.title);
 
     try {
       let newPostData;
       await db.transaction(async (tx) => {
-        const [newPost] = await tx.insert(posts).values({
-          title, 
-          slug: finalSlug, 
-          content, 
-          excerpt,
-          cover_image,
-          status: status || 'draft',
-          author_id: request.user.id, 
-        }).returning();
-        
+        const [newPost] = await tx
+          .insert(posts)
+          .values({
+            title: data.title,
+            slug: finalSlug,
+            content: data.content,
+            excerpt: data.excerpt,
+            cover_image: data.cover_image,
+            status: data.status || 'draft',
+            author_id: request.user.id,
+          })
+          .returning();
+
         newPostData = newPost;
 
-        if (tagNames && Array.isArray(tagNames)) {
-          for (const name of tagNames) {
+        if (data.tags && data.tags.length > 0) {
+          for (const name of data.tags) {
             const tagSlug = slugify(name);
             let tag = await tx.query.tags.findFirst({ where: eq(tags.slug, tagSlug) });
 
             if (!tag) {
-              const [createdTag] = await tx.insert(tags).values({ name, slug: tagSlug }).returning();
+              const [createdTag] = await tx
+                .insert(tags)
+                .values({ name, slug: tagSlug })
+                .returning();
               tag = createdTag;
             }
 
             await tx.insert(postTags).values({
               post_id: newPost.id,
-              tag_id: tag.id
+              tag_id: tag.id,
             });
           }
         }
       });
 
       return reply.status(201).send({ message: 'Post created successfully', post: newPostData });
-
     } catch (err: any) {
       request.log.error(err);
-      if (err.code === '23505') { 
+      if (err.code === '23505') {
         return reply.status(400).send({ message: 'Slug already exists' });
       }
       return reply.status(500).send({ message: 'Error creating post' });
@@ -107,21 +130,20 @@ app.get('/', async (request) => {
 
   // PUT /posts/:id (Protegido - Admin)
   app.put('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as any;
+    const params = validate(uuidParamSchema, request.params, reply);
+    if (!params) return;
+    const data = validate(postUpdateSchema, request.body, reply);
+    if (!data) return;
 
-    const updateData: any = { updated_at: new Date() };
-    if (body.status !== undefined) updateData.status = body.status;
-    if (body.title !== undefined) updateData.title = body.title;
-    if (body.content !== undefined) updateData.content = body.content;
-    if (body.excerpt !== undefined) updateData.excerpt = body.excerpt;
-    if (body.cover_image !== undefined) updateData.cover_image = body.cover_image;
+    const updateData: Record<string, unknown> = { updated_at: new Date() };
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.content !== undefined) updateData.content = data.content;
+    if (data.excerpt !== undefined) updateData.excerpt = data.excerpt;
+    if (data.cover_image !== undefined) updateData.cover_image = data.cover_image;
 
     try {
-      await db.update(posts)
-        .set(updateData)
-        .where(eq(posts.id, id));
-
+      await db.update(posts).set(updateData).where(eq(posts.id, params.id));
       return reply.send({ message: 'Post updated' });
     } catch (error) {
       request.log.error(error);
@@ -129,20 +151,20 @@ app.get('/', async (request) => {
     }
   });
 
-  // DELETE /posts/:id (Protegido - Admin)
+  // DELETE /posts/:id (Protegido - Admin) — soft delete
+  app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
+    const params = validate(uuidParamSchema, request.params, reply);
+    if (!params) return;
 
-app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
-  const { id } = request.params as { id: string };
-
-  try {
-    await db.update(posts)
-      .set({ status: 'deleted', deleted_at: new Date() })
-      .where(eq(posts.id, id));
-    return reply.send({ message: 'Post deleted successfully' });
-  } catch (error) {
-    request.log.error(error);
-    return reply.status(500).send({ message: 'Error deleting post' });
-  }
-});
-
+    try {
+      await db
+        .update(posts)
+        .set({ status: 'deleted', deleted_at: new Date() })
+        .where(eq(posts.id, params.id));
+      return reply.send({ message: 'Post deleted successfully' });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ message: 'Error deleting post' });
+    }
+  });
 }

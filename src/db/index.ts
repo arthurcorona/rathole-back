@@ -10,6 +10,7 @@ const client = postgres({
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
+  ssl: 'require', // Supabase exige conexão TLS
 });
 
 export const db = drizzle(client, { schema });
