@@ -62,6 +62,7 @@ export const suggestions = pgTable('suggestions', {
   status: text('status', { enum: ['pending', 'reviewed'] }).default('pending'),
   upvotes_count: integer('upvotes_count').default(0),
   created_at: timestamp('created_at').defaultNow(),
+  deleted_at: timestamp('deleted_at'),
 });
 
 export const suggestionVotes = pgTable('suggestion_votes', {

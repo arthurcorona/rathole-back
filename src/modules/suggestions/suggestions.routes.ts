@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
 import { suggestions, suggestionVotes } from '../../db/schema';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, isNull } from 'drizzle-orm';
 import {
   uuidParamSchema,
   suggestionCreateSchema,
@@ -19,6 +19,7 @@ export async function suggestionRoutes(app: FastifyInstance) {
     } catch {}
 
     const allSuggestions = await db.query.suggestions.findMany({
+      where: isNull(suggestions.deleted_at),
       orderBy: [desc(suggestions.upvotes_count)],
       with: {
         user: { columns: { username: true, avatar_url: true } }
@@ -57,6 +58,23 @@ export async function suggestionRoutes(app: FastifyInstance) {
       return reply.status(201).send({ message: 'Suggestion created' });
     } catch (error) {
       return reply.status(500).send({ message: 'Error creating suggestion' });
+    }
+  });
+
+  // DELETE /suggestions/:id (Protegido - Admin) — soft delete
+  app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
+    const params = validate(uuidParamSchema, request.params, reply);
+    if (!params) return;
+
+    try {
+      await db
+        .update(suggestions)
+        .set({ deleted_at: new Date() })
+        .where(eq(suggestions.id, params.id));
+      return reply.send({ message: 'Suggestion deleted successfully' });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ message: 'Error deleting suggestion' });
     }
   });
 
