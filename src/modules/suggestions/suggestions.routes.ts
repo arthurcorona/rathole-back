@@ -61,12 +61,27 @@ export async function suggestionRoutes(app: FastifyInstance) {
     }
   });
 
-  // DELETE /suggestions/:id (Protegido - Admin) — soft delete
-  app.delete('/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
+  // DELETE /suggestions/:id (soft delete) — admin OU o próprio autor
+  app.delete('/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
     const params = validate(uuidParamSchema, request.params, reply);
     if (!params) return;
 
     try {
+      const suggestion = await db.query.suggestions.findFirst({
+        where: and(eq(suggestions.id, params.id), isNull(suggestions.deleted_at)),
+        columns: { id: true, user_id: true },
+      });
+
+      if (!suggestion) {
+        return reply.status(404).send({ message: 'Suggestion not found' });
+      }
+
+      const isOwner = suggestion.user_id === request.user.id;
+      const isAdmin = request.user.role === 'admin';
+      if (!isOwner && !isAdmin) {
+        return reply.status(403).send({ message: 'Você só pode apagar suas próprias sugestões' });
+      }
+
       await db
         .update(suggestions)
         .set({ deleted_at: new Date() })

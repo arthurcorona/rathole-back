@@ -65,20 +65,31 @@ export async function commentRoutes(app: FastifyInstance) {
   });
 
   // DELETE /comments/:id (Admin) — soft delete
-  app.delete('/comments/:id', { onRequest: [app.requireAdmin] }, async (request, reply) => {
+  // DELETE /comments/:id (soft delete) — admin OU o próprio autor
+  app.delete('/comments/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
     const params = validate(uuidParamSchema, request.params, reply);
     if (!params) return;
 
     try {
-      const updated = await db
-        .update(comments)
-        .set({ deleted_at: sql`NOW()` })
-        .where(and(eq(comments.id, params.id), isNull(comments.deleted_at)))
-        .returning({ id: comments.id });
+      const comment = await db.query.comments.findFirst({
+        where: and(eq(comments.id, params.id), isNull(comments.deleted_at)),
+        columns: { id: true, user_id: true },
+      });
 
-      if (updated.length === 0) {
+      if (!comment) {
         return reply.status(404).send({ message: 'Comment not found or already deleted' });
       }
+
+      const isOwner = !!comment.user_id && comment.user_id === request.user.id;
+      const isAdmin = request.user.role === 'admin';
+      if (!isOwner && !isAdmin) {
+        return reply.status(403).send({ message: 'Você só pode apagar seus próprios comentários' });
+      }
+
+      await db
+        .update(comments)
+        .set({ deleted_at: sql`NOW()` })
+        .where(eq(comments.id, params.id));
 
       return reply.send({ message: 'Comment deleted' });
     } catch (error) {
