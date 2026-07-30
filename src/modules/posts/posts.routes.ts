@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
-import { posts, tags, postTags } from '../../db/schema';
-import { eq, desc, ne, and } from 'drizzle-orm';
+import { posts, tags, postTags, postVotes } from '../../db/schema';
+import { eq, desc, ne, and, sql } from 'drizzle-orm';
 import { slugify } from '../../utils/stringUtils';
 import {
   slugParamSchema,
@@ -16,18 +16,17 @@ export async function postRoutes(app: FastifyInstance) {
   // Rota: GET /posts (Público)
 app.get('/', async (request) => {
   let isAdmin = false;
+  let userId: string | null = null;
   try {
     await request.jwtVerify();
-    request.log.info({ user: request.user }, '>>> JWT User');
     isAdmin = request.user?.role === 'admin';
+    userId = request.user?.id ?? null;
   } catch(err: any) {
     request.log.info({ error: err.message }, '>>> JWT falhou');
   }
 
-  request.log.info({ isAdmin }, '>>> isAdmin');
-
   const allPosts = await db.query.posts.findMany({
-    where: isAdmin 
+    where: isAdmin
       ? ne(posts.status,'deleted')
       : eq(posts.status,'published'),
     orderBy: [desc(posts.created_at)],
@@ -37,9 +36,19 @@ app.get('/', async (request) => {
     }
   });
 
+  // votos do usuário logado (pra marcar has_voted)
+  let votedIds = new Set<string>();
+  if (userId) {
+    const userVotes = await db.query.postVotes.findMany({
+      where: eq(postVotes.user_id, userId),
+    });
+    votedIds = new Set(userVotes.map(v => v.post_id));
+  }
+
   return allPosts.map(post => ({
     ...post,
-    tags: post.postTags.map((pt) => pt.tag)
+    tags: post.postTags.map((pt) => pt.tag),
+    has_voted: votedIds.has(post.id),
   }));
 });
 
@@ -49,9 +58,11 @@ app.get('/', async (request) => {
     if (!params) return;
 
     let isAdmin = false;
+    let userId: string | null = null;
     try {
       await request.jwtVerify();
       isAdmin = request.user?.role === 'admin';
+      userId = request.user?.id ?? null;
     } catch {}
 
     const post = await db.query.posts.findFirst({
@@ -66,9 +77,18 @@ app.get('/', async (request) => {
 
     if (!post) return reply.status(404).send({ message: 'Post not found' });
 
+    let hasVoted = false;
+    if (userId) {
+      const vote = await db.query.postVotes.findFirst({
+        where: and(eq(postVotes.post_id, post.id), eq(postVotes.user_id, userId)),
+      });
+      hasVoted = !!vote;
+    }
+
     return {
       ...post,
       tags: post.postTags.map((pt) => pt.tag),
+      has_voted: hasVoted,
     };
   });
 
@@ -165,6 +185,63 @@ app.get('/', async (request) => {
     } catch (error) {
       request.log.error(error);
       return reply.status(500).send({ message: 'Error deleting post' });
+    }
+  });
+
+  // POST /posts/:id/vote — registra upvote (usuário logado)
+  app.post('/:id/vote', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const params = validate(uuidParamSchema, request.params, reply);
+    if (!params) return;
+    const userId = request.user.id;
+
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(postVotes).values({
+          post_id: params.id,
+          user_id: userId,
+        });
+
+        await tx
+          .update(posts)
+          .set({ upvotes_count: sql`${posts.upvotes_count} + 1` })
+          .where(eq(posts.id, params.id));
+      });
+
+      return reply.send({ message: 'Voted' });
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return reply.status(400).send({ message: 'You already voted on this post' });
+      }
+      request.log.error(error);
+      return reply.status(500).send({ message: 'Error voting' });
+    }
+  });
+
+  // DELETE /posts/:id/vote — remove upvote
+  app.delete('/:id/vote', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const params = validate(uuidParamSchema, request.params, reply);
+    if (!params) return;
+    const userId = request.user.id;
+
+    try {
+      await db.transaction(async (tx) => {
+        const deleted = await tx
+          .delete(postVotes)
+          .where(and(eq(postVotes.post_id, params.id), eq(postVotes.user_id, userId)))
+          .returning();
+
+        if (deleted.length > 0) {
+          await tx
+            .update(posts)
+            .set({ upvotes_count: sql`${posts.upvotes_count} - 1` })
+            .where(eq(posts.id, params.id));
+        }
+      });
+
+      return reply.send({ message: 'Vote removed' });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ message: 'Error removing vote' });
     }
   });
 }
