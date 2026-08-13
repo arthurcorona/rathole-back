@@ -88,6 +88,16 @@ export const resendVerificationSchema = z.object({
   email: z.string().email('Email inválido').max(255),
 });
 
+// Password reset
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Email inválido').max(255),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token obrigatório'),
+  password: z.string().min(8, 'Senha precisa de no mínimo 8 caracteres').max(72, 'Senha muito longa'),
+});
+
 export function validate<T>(
   schema: ZodSchema<T>,
   data: unknown,

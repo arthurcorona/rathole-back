@@ -9,12 +9,15 @@ import {
   profileUpdateSchema,
   verifyEmailSchema,
   resendVerificationSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   validate,
   emailHasMxRecord,
 } from '../../core/validation';
-import { sendVerificationEmail } from '../../core/mailer';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../../core/mailer';
 
 const VERIFY_TOKEN_PURPOSE = 'email_verification';
+const RESET_TOKEN_PURPOSE = 'password_reset';
 
 export async function authRoutes(app: FastifyInstance) {
 
@@ -163,6 +166,67 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     return reply.send({ message: 'Se o email existir e ainda não foi verificado, enviaremos um novo link.' });
+  });
+
+  // POST /auth/forgot-password — sempre 200 (anti-enumeração)
+  app.post('/forgot-password', async (request, reply) => {
+    const data = validate(forgotPasswordSchema, request.body, reply);
+    if (!data) return;
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, data.email),
+    });
+
+    if (user) {
+      try {
+        const token = app.jwt.sign(
+          { email: user.email, purpose: RESET_TOKEN_PURPOSE },
+          { expiresIn: '1h' },
+        );
+        await sendPasswordResetEmail(user.email, token);
+      } catch (error) {
+        request.log.error({ err: error }, 'failed to send password reset email');
+      }
+    }
+
+    return reply.send({
+      message: 'Se o email existir, enviaremos um link para redefinir a senha.',
+    });
+  });
+
+  // POST /auth/reset-password — valida o token e troca a senha
+  app.post('/reset-password', async (request, reply) => {
+    const data = validate(resetPasswordSchema, request.body, reply);
+    if (!data) return;
+
+    let decoded: { email?: string; purpose?: string };
+    try {
+      decoded = app.jwt.verify(data.token) as any;
+    } catch (err: any) {
+      const expired = err?.code === 'FAST_JWT_EXPIRED' || /expired/i.test(err?.message || '');
+      return reply.status(400).send({
+        message: expired ? 'Link expirado' : 'Token inválido',
+        code: expired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID',
+      });
+    }
+
+    if (decoded.purpose !== RESET_TOKEN_PURPOSE || !decoded.email) {
+      return reply.status(400).send({ message: 'Token inválido', code: 'TOKEN_INVALID' });
+    }
+
+    const hash = await bcrypt.hash(data.password, 10);
+
+    const updated = await db
+      .update(users)
+      .set({ password_hash: hash })
+      .where(eq(users.email, decoded.email))
+      .returning({ id: users.id });
+
+    if (updated.length === 0) {
+      return reply.status(404).send({ message: 'Usuário não encontrado' });
+    }
+
+    return reply.send({ message: 'Senha redefinida com sucesso' });
   });
 
   // PUT /auth/profile
