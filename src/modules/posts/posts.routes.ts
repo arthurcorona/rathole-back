@@ -25,11 +25,22 @@ app.get('/', async (request) => {
     request.log.info({ error: err.message }, '>>> JWT falhou');
   }
 
+  // termo de busca opcional: GET /posts?q=alguma coisa
+  const rawQ = (request.query as { q?: string })?.q;
+  const q = typeof rawQ === 'string' ? rawQ.trim() : '';
+
+  // filtro de status (regra que já existia)
+  const statusFilter = isAdmin ? ne(posts.status, 'deleted') : eq(posts.status, 'published');
+
   const allPosts = await db.query.posts.findMany({
-    where: isAdmin
-      ? ne(posts.status,'deleted')
-      : eq(posts.status,'published'),
-    orderBy: [desc(posts.created_at)],
+    // com busca: status + full-text (@@); sem busca: só status
+    where: q
+      ? and(statusFilter, sql`search_vector @@ websearch_to_tsquery('portuguese', ${q})`)
+      : statusFilter,
+    // com busca: ordena por relevância (ts_rank); sem busca: por data (como antes)
+    orderBy: q
+      ? [desc(sql`ts_rank(search_vector, websearch_to_tsquery('portuguese', ${q}))`)]
+      : [desc(posts.created_at)],
     with: {
       author: { columns: { username: true, avatar_url: true } },
       postTags: { with: { tag: true } }
