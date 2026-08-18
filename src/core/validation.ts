@@ -54,6 +54,7 @@ export const postCreateSchema = z.object({
   excerpt: z.string().max(500).optional().nullable(),
   cover_image: httpUrl.optional().nullable(),
   status: z.enum(['draft', 'published']).optional(),
+  visibility: z.enum(['public', 'members']).optional(),
   tags: z.array(z.string().min(1).max(50)).max(20).optional(),
 });
 
@@ -63,6 +64,12 @@ export const postUpdateSchema = z.object({
   excerpt: z.string().max(500).optional().nullable(),
   cover_image: httpUrl.optional().nullable(),
   status: z.enum(['draft', 'published', 'deleted']).optional(),
+  visibility: z.enum(['public', 'members']).optional(),
+});
+
+// Membership (admin concede/revoga) — ISO date ou null pra revogar
+export const membershipUpdateSchema = z.object({
+  member_until: z.string().datetime({ offset: true }).nullable(),
 });
 
 // Comments

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
-import { posts, tags, postTags, postVotes } from '../../db/schema';
+import { posts, tags, postTags, postVotes, users } from '../../db/schema';
 import { eq, desc, ne, and, sql } from 'drizzle-orm';
 import { slugify } from '../../utils/stringUtils';
 import {
@@ -13,6 +13,16 @@ import {
 
 
 export async function postRoutes(app: FastifyInstance) {
+  // membro ativo? (member_until no futuro). Admin é tratado à parte no chamador.
+  async function memberActive(userId: string | null): Promise<boolean> {
+    if (!userId) return false;
+    const u = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { member_until: true },
+    });
+    return !!u?.member_until && new Date(u.member_until) > new Date();
+  }
+
   // Rota: GET /posts (Público)
 app.get('/', async (request) => {
   let isAdmin = false;
@@ -29,8 +39,18 @@ app.get('/', async (request) => {
   const rawQ = (request.query as { q?: string })?.q;
   const q = typeof rawQ === 'string' ? rawQ.trim() : '';
 
-  // filtro de status (regra que já existia)
-  const statusFilter = isAdmin ? ne(posts.status, 'deleted') : eq(posts.status, 'published');
+  // é membro ativo? (admin sempre; senão checa member_until no banco)
+  const isMember = isAdmin || (await memberActive(userId));
+
+  // quem vê o quê:
+  //  admin    -> tudo (menos deletado)
+  //  membro   -> publicados (public + members)
+  //  visitante -> só publicados E públicos
+  const statusFilter = isAdmin
+    ? ne(posts.status, 'deleted')
+    : isMember
+      ? eq(posts.status, 'published')
+      : and(eq(posts.status, 'published'), eq(posts.visibility, 'public'));
 
   const allPosts = await db.query.posts.findMany({
     // com busca: status + full-text (@@); sem busca: só status
@@ -88,6 +108,12 @@ app.get('/', async (request) => {
 
     if (!post) return reply.status(404).send({ message: 'Post not found' });
 
+    // post exclusivo de membros: esconde de quem não é membro (404, não revela que existe)
+    if (post.visibility === 'members' && !isAdmin) {
+      const isMember = await memberActive(userId);
+      if (!isMember) return reply.status(404).send({ message: 'Post not found' });
+    }
+
     let hasVoted = false;
     if (userId) {
       const vote = await db.query.postVotes.findFirst({
@@ -122,6 +148,7 @@ app.get('/', async (request) => {
             excerpt: data.excerpt,
             cover_image: data.cover_image,
             status: data.status || 'draft',
+            visibility: data.visibility || 'public',
             author_id: request.user.id,
           })
           .returning();
@@ -172,6 +199,7 @@ app.get('/', async (request) => {
     if (data.content !== undefined) updateData.content = data.content;
     if (data.excerpt !== undefined) updateData.excerpt = data.excerpt;
     if (data.cover_image !== undefined) updateData.cover_image = data.cover_image;
+    if (data.visibility !== undefined) updateData.visibility = data.visibility;
 
     try {
       await db.update(posts).set(updateData).where(eq(posts.id, params.id));

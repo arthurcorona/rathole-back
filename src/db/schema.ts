@@ -11,6 +11,7 @@ export const users = pgTable('users', {
   role: text('role', { enum: ['admin', 'reader'] }).default('reader'),
   avatar_url: text('avatar_url'),
   email_verified: boolean('email_verified').notNull().default(false),
+  member_until: timestamp('member_until', { withTimezone: true }),
   created_at: timestamp('created_at').defaultNow(),
 });
 
@@ -22,6 +23,7 @@ export const posts = pgTable('posts', {
   excerpt: text('excerpt'),
   cover_image: text('cover_image'),
   status: text('status', { enum: ['draft', 'published','deleted'] }).default('draft'),
+  visibility: text('visibility', { enum: ['public', 'members'] }).notNull().default('public'),
   author_id: uuid('author_id').references(() => users.id).notNull(),
   upvotes_count: integer('upvotes_count').default(0),
   created_at: timestamp('created_at').defaultNow(),
