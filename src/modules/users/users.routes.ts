@@ -1,13 +1,25 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
 import { users } from '../../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { uuidParamSchema, membershipUpdateSchema, validate } from '../../core/validation';
 
 export async function userRoutes(app: FastifyInstance) {
-  // GET /users — lista de usuários (admin)
-  app.get('/', { onRequest: [app.requireAdmin] }, async () => {
+  // GET /users — lista de usuários (admin). Filtro opcional: ?q= (full-text indexado)
+  app.get('/', { onRequest: [app.requireAdmin] }, async (request) => {
+    const rawQ = (request.query as { q?: string })?.q;
+    const q = typeof rawQ === 'string' ? rawQ.trim() : '';
+
+    // monta uma tsquery de PREFIXO ("cor" -> cor:*), sanitizando cada termo
+    const terms = q
+      .split(/\s+/)
+      .map((t) => t.replace(/[^\p{L}\p{N}]/gu, '')) // só letras/números
+      .filter(Boolean);
+    const tsq = terms.map((t) => `${t}:*`).join(' & ');
+
     return db.query.users.findMany({
+      // com filtro: casa contra o search_vector (username + email tokenizado); sem filtro: todos
+      where: tsq ? sql`search_vector @@ to_tsquery('simple', ${tsq})` : undefined,
       columns: {
         id: true,
         username: true,

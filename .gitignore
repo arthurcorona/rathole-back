@@ -5,4 +5,5 @@ seed.ts
 
 reset-password.ts
 
-/uploadsnode_modules/
+/uploads
+node_modules/
