@@ -105,6 +105,49 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Senha precisa de no mínimo 8 caracteres').max(72, 'Senha muito longa'),
 });
 
+// Radar (notícias curadas)
+const radarRunType = z.enum(['daily', 'weekly']);
+const radarTier = z.enum(['members', 'public']);
+const radarStatus = z.enum(['pending', 'approved', 'rejected']);
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve ser YYYY-MM-DD');
+
+export const radarIngestSchema = z.object({
+  run_type: radarRunType,
+  items: z
+    .array(
+      z.object({
+        title: z.string().min(1, 'Título obrigatório').max(500),
+        link: httpUrl,
+        source: z.string().min(1, 'Fonte obrigatória').max(120),
+        summary: z.string().max(2000).optional().nullable(),
+        score: z.number().int().min(-1000).max(100000).optional(),
+        hits: z.array(z.string().min(1).max(80)).max(50).optional().nullable(),
+        published_at: z.string().datetime({ offset: true }).optional().nullable(),
+      }),
+    )
+    .min(1, 'Nenhum item enviado')
+    .max(200, 'Máximo de 200 itens por envio'),
+});
+
+export const radarAdminQuerySchema = z.object({
+  status: radarStatus.optional().default('pending'),
+});
+
+export const radarPatchSchema = z
+  .object({
+    status: radarStatus.optional(),
+    tier: radarTier.optional(),
+    rank: z.number().int().min(1).max(1000).nullable().optional(),
+  })
+  .refine((d) => d.status !== undefined || d.tier !== undefined || d.rank !== undefined, {
+    message: 'Nada para atualizar',
+  });
+
+export const radarDailyQuerySchema = z.object({
+  date: isoDate.optional(),
+  days: z.coerce.number().int().min(1).max(30).optional(),
+});
+
 export function validate<T>(
   schema: ZodSchema<T>,
   data: unknown,

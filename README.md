@@ -37,6 +37,7 @@ Nasceu **self-hosted** num homelab (Raspberry Pi com Docker, Nginx e Cloudflare 
 - 🔒 **Membership** — posts exclusivos (`visibility`) e guard `requireMember`
 - 🖼️ **Upload de imagens** para **Supabase Storage**
 - ✅ **Validação de entrada** com Zod em todas as rotas
+- 📡 **Radar** — notícias de segurança enviadas por um coletor externo (token de serviço), curadas pelo admin: edição diária para membros e **Dossiê semanal** público
 
 ## 🧰 Stack
 
@@ -157,6 +158,10 @@ erDiagram
 | `DELETE` | `/suggestions/:id` | dono/admin | Apagar sugestão (soft) |
 | `GET`·`PUT` | `/users` · `/users/:id/membership` | admin | Listar usuários / conceder membership |
 | `POST` | `/upload` | logado | Upload de imagem (Supabase Storage) |
+| `POST` | `/radar/items` | header `x-radar-token` | Ingestão de notícias pelo coletor (dedup por `link`) |
+| `GET`·`PATCH` | `/radar/admin` `?status=` · `/radar/admin/:id` | admin | Fila de curadoria / aprovar, descartar, tier, posição |
+| `GET` | `/radar/daily` `?date=` `?days=` | membro | Edição do dia (itens `members` aprovados) |
+| `GET` | `/radar/weekly` | público | Dossiê semanal (itens `public` aprovados, por posição) |
 | `GET` | `/health` | público | Health check |
 
 ## 📁 Estrutura
@@ -177,8 +182,11 @@ src/
 │  ├─ comments/       # threads, soft-delete
 │  ├─ suggestions/    # sugestões + votos
 │  ├─ uploads/        # upload → Supabase Storage
-│  └─ users/          # admin: listar / membership
+│  ├─ users/          # admin: listar / membership
+│  └─ radar/          # ingestão (token), curadoria, edição diária, dossiê semanal
 └─ utils/             # helpers (slugify, etc.)
+drizzle/  # migrações SQL manuais (aplicar com npm run db:sql)
+scripts/  # run-sql.ts
 app.ts   # monta o Fastify e registra as rotas
 server.ts # entrypoint
 ```
@@ -199,6 +207,7 @@ npm run dev                  # http://localhost:3333
 ```
 
 > A busca full-text usa uma coluna `search_vector` (tsvector gerada) + índice GIN, aplicada por migração SQL manual — veja `MIGRATION.md`.
+> Como `search_vector` não está no `schema.ts`, **evite `drizzle-kit push` em banco existente** (ele tentaria remover a coluna). Novas tabelas entram por SQL em `drizzle/` via `npm run db:sql`.
 
 ## 🔐 Variáveis de ambiente
 
@@ -212,6 +221,7 @@ npm run dev                  # http://localhost:3333
 | `RESEND_API_KEY` `EMAIL_FROM` | Envio de e-mail (Resend) |
 | `APP_URL` | URL do frontend (usada nos links de e-mail) |
 | `PORT` | Porta do servidor (default 3333) |
+| `RADAR_TOKEN` | Token de serviço do coletor **radar** (header `x-radar-token`). Gere com `openssl rand -hex 32` |
 
 ## 📜 Scripts
 
@@ -221,6 +231,7 @@ npm run dev                  # http://localhost:3333
 | `npm run build` | Compila TypeScript |
 | `npm start` | Roda o build |
 | `npx drizzle-kit push` | Sincroniza o schema com o banco |
+| `npm run db:sql -- drizzle/<arquivo>.sql` | Aplica uma migração SQL manual (ex.: `radar_items`) |
 
 ## 🏗️ Arquitetura
 

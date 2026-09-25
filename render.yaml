@@ -35,3 +35,6 @@ services:
       # --- Email ---
       - key: RESEND_API_KEY
         sync: false           # secret
+      # --- Radar (token de serviço do coletor, header x-radar-token) ---
+      - key: RADAR_TOKEN
+        sync: false           # secret — openssl rand -hex 32

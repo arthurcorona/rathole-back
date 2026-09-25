@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, uuid, integer, primaryKey, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, uuid, integer, jsonb, primaryKey, unique, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // tables
@@ -81,6 +81,28 @@ export const suggestionVotes = pgTable('suggestion_votes', {
   suggestion_id: uuid('suggestion_id').references(() => suggestions.id).notNull(),
   user_id: uuid('user_id').references(() => users.id).notNull(),
 });
+
+// Radar: notícias coletadas pelo serviço externo (Python/RPi) e curadas pelo admin.
+// tier: members = edição diária (membros) | public = Dossiê semanal (todos)
+export const radarItems = pgTable('radar_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  title: text('title').notNull(),
+  link: text('link').notNull().unique(), // chave de deduplicação
+  source: text('source').notNull(),
+  summary: text('summary'),
+  score: integer('score').notNull().default(0),
+  hits: jsonb('hits').$type<string[]>(), // termos que pontuaram
+  published_at: timestamp('published_at', { withTimezone: true }),
+  run_type: text('run_type', { enum: ['daily', 'weekly'] }).notNull(),
+  tier: text('tier', { enum: ['members', 'public'] }).notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+  rank: integer('rank'), // posição no dossiê semanal; null fora dele
+  approved_at: timestamp('approved_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  statusTierApprovedIdx: index('radar_items_status_tier_approved_idx').on(t.status, t.tier, t.approved_at),
+  statusCreatedIdx: index('radar_items_status_created_idx').on(t.status, t.created_at),
+}));
 
 // relations
 

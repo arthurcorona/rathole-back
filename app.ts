@@ -11,6 +11,7 @@ import { commentRoutes } from './src/modules/comments/comments.routes';
 import { suggestionRoutes } from './src/modules/suggestions/suggestions.routes';
 import { uploadRoutes } from './src/modules/uploads/uploads.routes';
 import { userRoutes } from './src/modules/users/users.routes';
+import { radarRoutes } from './src/modules/radar/radar.routes';
 
 export const app: FastifyInstance = fastify({ logger: true });
 
@@ -25,6 +26,7 @@ export async function buildApp() {
   app.register(postRoutes, { prefix: '/posts' });
   app.register(suggestionRoutes, { prefix: '/suggestions' });
   app.register(userRoutes, { prefix: '/users' });
+  app.register(radarRoutes, { prefix: '/radar' });
 
   app.register(commentRoutes);
   app.register(uploadRoutes);
