@@ -38,3 +38,8 @@ services:
       # --- Radar (token de serviço do coletor, header x-radar-token) ---
       - key: RADAR_TOKEN
         sync: false           # secret — openssl rand -hex 32
+      # --- OSINT (ponte para o ratosint, outro serviço no Render) ---
+      - key: RATOSINT_URL
+        value: https://ratosint.onrender.com
+      - key: RATOSINT_API_TOKEN
+        sync: false           # secret — o mesmo RATOSINT_API_TOKEN do serviço ratosint

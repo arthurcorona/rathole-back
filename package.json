@@ -8,7 +8,8 @@
     "dev": "tsx watch server.ts",
     "build": "tsc",
     "start": "node server.js",
-    "db:sql": "tsx scripts/run-sql.ts"
+    "db:sql": "tsx scripts/run-sql.ts",
+    "radar:import": "tsx scripts/import-radar-notes.ts"
   },
   "repository": {
     "type": "git",

@@ -232,6 +232,7 @@ npm run dev                  # http://localhost:3333
 | `npm start` | Roda o build |
 | `npx drizzle-kit push` | Sincroniza o schema com o banco |
 | `npm run db:sql -- drizzle/<arquivo>.sql` | Aplica uma migração SQL manual (ex.: `radar_items`) |
+| `npm run radar:import -- <nota.md \| pasta> [--api URL] [--dry-run]` | Importa notas do radar (Obsidian) para `POST /radar/items` |
 
 ## 🏗️ Arquitetura
 

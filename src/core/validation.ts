@@ -148,6 +148,53 @@ export const radarDailyQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(30).optional(),
 });
 
+// ---- OSINT (ponte /osint -> ratosint) ----
+export const osintJobSchema = z.object({
+  kind: z.string().regex(/^[a-z][a-z0-9_.]{0,39}$/, 'Tipo de consulta inválido'),
+  value: z.string().trim().min(1, 'Informe o valor da consulta').max(200),
+  opts: z.record(z.string(), z.union([z.string().max(200), z.number(), z.boolean()])).optional(),
+  target_id: z.number().int().positive().optional(), // CSI: liga a consulta a um alvo
+});
+
+export const osintJobsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+export const osintJobIdParamSchema = z.object({ id: z.string().uuid('ID inválido') });
+
+export const osintIntIdParamSchema = z.object({ id: z.coerce.number().int().positive('ID inválido') });
+
+// ---- CSI (casos, alvos e notas do ratosint) ----
+export const csiCaseSchema = z.object({
+  name: z.string().trim().min(1, 'Dê um nome à investigação').max(120),
+  description: z.string().trim().max(2000).nullable().optional(),
+  status: z.enum(['open', 'closed']).optional(),
+});
+
+export const csiTargetSchema = z.object({
+  name: z.string().trim().min(1, 'Informe o nome').max(160),
+  kind: z.enum(['pessoa', 'empresa']),
+  summary: z.string().trim().max(5000).nullable().optional(),
+});
+
+export const csiNoteSchema = z
+  .object({
+    text: z.string().trim().min(1, 'Escreva a nota').max(10000),
+    kind: z.enum(['nota', 'fato', 'link', 'telefone', 'email', 'endereco']).default('nota'),
+    url: httpUrl.nullable().optional(),
+    title: z.string().trim().max(200).nullable().optional(),
+  })
+  .refine((n) => n.kind !== 'link' || !!n.url, { message: 'Nota do tipo link precisa de URL', path: ['url'] });
+
+// Caminho relativo dentro dos arquivos do ratosint: sem "..", sem barra inicial.
+export const osintFilePathSchema = z.object({
+  '*': z
+    .string()
+    .min(1)
+    .max(300)
+    .refine((p) => !p.startsWith('/') && !p.split('/').includes('..'), 'Caminho inválido'),
+});
+
 export function validate<T>(
   schema: ZodSchema<T>,
   data: unknown,
