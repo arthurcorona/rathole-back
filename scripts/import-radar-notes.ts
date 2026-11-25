@@ -126,7 +126,7 @@ async function send(api: string, token: string, note: ParsedNote) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${JSON.stringify(body)}`);
-  return body as { inserted: number; skipped: number };
+  return body as { inserted: number; skipped: number; published?: number };
 }
 
 async function main() {
@@ -147,8 +147,10 @@ async function main() {
     process.exit(1);
   }
 
-  const files = collectFiles(paths);
-  let total = { inserted: 0, skipped: 0 };
+  // mais nova primeiro: o back publica no máximo 10 itens por dia, então num import
+  // atrasado as vagas de hoje ficam com as notícias mais recentes
+  const files = collectFiles(paths).sort((a, b) => basename(b).localeCompare(basename(a)));
+  let total = { inserted: 0, skipped: 0, published: 0 };
 
   for (const file of files) {
     let note: ParsedNote;
@@ -169,15 +171,21 @@ async function main() {
     }
     try {
       const r = await send(api, token!, note);
-      total = { inserted: total.inserted + r.inserted, skipped: total.skipped + r.skipped };
-      console.log(`ok    ${basename(file)}: ${note.items.length} itens → inseridos ${r.inserted}, já existiam ${r.skipped}`);
+      const pub = r.published ?? 0;
+      total = { inserted: total.inserted + r.inserted, skipped: total.skipped + r.skipped, published: total.published + pub };
+      console.log(
+        `ok    ${basename(file)}: ${note.items.length} itens → inseridos ${r.inserted}, já existiam ${r.skipped}, publicados no radar ${pub}`,
+      );
     } catch (err) {
       console.error(`erro  ${basename(file)}: ${(err as Error).message}`);
       process.exitCode = 1;
     }
   }
 
-  if (!dryRun) console.log(`\ntotal: inseridos ${total.inserted}, já existiam ${total.skipped} (${api})`);
+  if (!dryRun)
+    console.log(
+      `\ntotal: inseridos ${total.inserted}, já existiam ${total.skipped}, publicados no radar ${total.published} (${api})`,
+    );
 }
 
 main();

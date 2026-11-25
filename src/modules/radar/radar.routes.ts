@@ -17,8 +17,9 @@ const TZ = 'America/Sao_Paulo';
 
 // Publicação automática: em cada rodada diária, os N itens de maior pontuação vão
 // direto para o Radar dos membros, sem curadoria. O resto fica na fila.
-// Só entram notícias recentes, para que importar notas antigas não encha o
-// "Radar de hoje" com notícia velha.
+// N é o teto do dia (fuso SP), não de cada rodada: importar várias notas no mesmo
+// dia não passa de N itens no "Radar de hoje". E só entram notícias recentes,
+// para que importar notas antigas não encha a edição com notícia velha.
 const AUTO_PUBLISH_TOP = Number(process.env.RADAR_AUTO_PUBLISH ?? 10);
 const AUTO_PUBLISH_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 
@@ -98,12 +99,24 @@ export async function radarRoutes(app: FastifyInstance) {
             .returning({ id: radarItems.id, score: radarItems.score, published_at: radarItems.published_at });
 
           let published = 0;
-          if (data.run_type === 'daily' && AUTO_PUBLISH_TOP > 0) {
+          if (data.run_type === 'daily' && AUTO_PUBLISH_TOP > 0 && inserted.length > 0) {
+            // serializa imports simultâneos para o teto do dia valer
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtext('radar_auto_publish'))`);
+            const [{ today }] = await tx
+              .select({ today: sql<number>`count(*)::int` })
+              .from(radarItems)
+              .where(
+                and(
+                  eq(radarItems.status, 'approved'),
+                  sql`(${radarItems.approved_at} AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date`,
+                ),
+              );
+            const slots = Math.max(0, AUTO_PUBLISH_TOP - today);
             const cutoff = Date.now() - AUTO_PUBLISH_MAX_AGE_MS;
             const picks = inserted
               .filter((r) => !r.published_at || r.published_at.getTime() >= cutoff)
               .sort((a, b) => b.score - a.score)
-              .slice(0, AUTO_PUBLISH_TOP)
+              .slice(0, slots)
               .map((r) => r.id);
             if (picks.length > 0) {
               const rows = await tx
