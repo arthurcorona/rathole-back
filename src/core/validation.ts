@@ -130,7 +130,9 @@ export const radarIngestSchema = z.object({
 });
 
 export const radarAdminQuerySchema = z.object({
-  status: radarStatus.optional().default('pending'),
+  view: z.enum(['radar', 'highlights', 'queue', 'rejected']).optional().default('radar'),
+  page: z.coerce.number().int().min(1).max(100000).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(10),
 });
 
 export const radarPatchSchema = z

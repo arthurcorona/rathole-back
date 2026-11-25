@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { timingSafeEqual } from 'crypto';
 import { db } from '../../db';
 import { radarItems } from '../../db/schema';
-import { and, eq, desc, sql } from 'drizzle-orm';
+import { and, eq, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   uuidParamSchema,
   radarIngestSchema,
@@ -14,7 +14,39 @@ import {
 
 // Fuso usado para definir "dia" e "semana" das edições.
 const TZ = 'America/Sao_Paulo';
-const ADMIN_LIST_LIMIT = 200;
+
+// Publicação automática: em cada rodada diária, os N itens de maior pontuação vão
+// direto para o Radar dos membros, sem curadoria. O resto fica na fila.
+// Só entram notícias recentes, para que importar notas antigas não encha o
+// "Radar de hoje" com notícia velha.
+const AUTO_PUBLISH_TOP = Number(process.env.RADAR_AUTO_PUBLISH ?? 10);
+const AUTO_PUBLISH_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+
+// Abas do painel de curadoria.
+const ADMIN_VIEWS: Record<'radar' | 'highlights' | 'queue' | 'rejected', { where: SQL | undefined; orderBy: SQL[] }> = {
+  // publicados no Radar dos membros (automáticos ou aprovados à mão)
+  radar: {
+    where: and(eq(radarItems.status, 'approved'), eq(radarItems.tier, 'members')),
+    orderBy: [sql`${radarItems.approved_at} desc nulls last`, desc(radarItems.score)],
+  },
+  // destaques = Dossiê semanal público; semana mais recente primeiro, depois posição
+  highlights: {
+    where: and(eq(radarItems.status, 'approved'), eq(radarItems.tier, 'public')),
+    orderBy: [
+      sql`date_trunc('week', ${radarItems.approved_at} AT TIME ZONE ${TZ}) desc nulls last`,
+      sql`${radarItems.rank} asc nulls last`,
+      desc(radarItems.score),
+    ],
+  },
+  queue: {
+    where: eq(radarItems.status, 'pending'),
+    orderBy: [sql`coalesce(${radarItems.published_at}, ${radarItems.created_at}) desc`, desc(radarItems.score)],
+  },
+  rejected: {
+    where: eq(radarItems.status, 'rejected'),
+    orderBy: [sql`coalesce(${radarItems.published_at}, ${radarItems.created_at}) desc`, desc(radarItems.score)],
+  },
+};
 
 // Token de serviço (não é JWT): o radar roda fora do repo e se identifica por header.
 // Comparação em tempo constante; sem RADAR_TOKEN configurado a rota fica fechada.
@@ -58,15 +90,37 @@ export async function radarRoutes(app: FastifyInstance) {
       }));
 
       try {
-        const inserted = await db
-          .insert(radarItems)
-          .values(values)
-          .onConflictDoNothing({ target: radarItems.link })
-          .returning({ id: radarItems.id });
+        const result = await db.transaction(async (tx) => {
+          const inserted = await tx
+            .insert(radarItems)
+            .values(values)
+            .onConflictDoNothing({ target: radarItems.link })
+            .returning({ id: radarItems.id, score: radarItems.score, published_at: radarItems.published_at });
+
+          let published = 0;
+          if (data.run_type === 'daily' && AUTO_PUBLISH_TOP > 0) {
+            const cutoff = Date.now() - AUTO_PUBLISH_MAX_AGE_MS;
+            const picks = inserted
+              .filter((r) => !r.published_at || r.published_at.getTime() >= cutoff)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, AUTO_PUBLISH_TOP)
+              .map((r) => r.id);
+            if (picks.length > 0) {
+              const rows = await tx
+                .update(radarItems)
+                .set({ status: 'approved', approved_at: new Date() })
+                .where(inArray(radarItems.id, picks))
+                .returning({ id: radarItems.id });
+              published = rows.length;
+            }
+          }
+          return { inserted: inserted.length, published };
+        });
 
         return reply.status(201).send({
-          inserted: inserted.length,
-          skipped: values.length - inserted.length,
+          inserted: result.inserted,
+          skipped: values.length - result.inserted,
+          published: result.published,
         });
       } catch (error) {
         request.log.error({ err: error }, 'radar ingest failed');
@@ -75,16 +129,23 @@ export async function radarRoutes(app: FastifyInstance) {
     },
   );
 
-  // GET /radar/admin?status=pending — fila de curadoria (admin)
+  // GET /radar/admin?view=radar&page=1&limit=10 — painel de curadoria paginado (admin)
   app.get('/admin', { onRequest: [app.requireAdmin] }, async (request, reply) => {
     const query = validate(radarAdminQuerySchema, request.query, reply);
     if (!query) return;
 
-    return db.query.radarItems.findMany({
-      where: eq(radarItems.status, query.status),
-      orderBy: [desc(radarItems.created_at)],
-      limit: ADMIN_LIST_LIMIT,
-    });
+    const view = ADMIN_VIEWS[query.view];
+    const [items, [{ total }]] = await Promise.all([
+      db.query.radarItems.findMany({
+        where: view.where,
+        orderBy: view.orderBy,
+        limit: query.limit,
+        offset: (query.page - 1) * query.limit,
+      }),
+      db.select({ total: sql<number>`count(*)::int` }).from(radarItems).where(view.where),
+    ]);
+
+    return { items, total, page: query.page, limit: query.limit };
   });
 
   // PATCH /radar/admin/:id — aprovar / descartar / trocar tier / definir posição (admin)
@@ -133,11 +194,12 @@ export async function radarRoutes(app: FastifyInstance) {
   });
 
   // GET /radar/daily?date=YYYY-MM-DD | ?days=7 — edição de membros (member/admin)
+  // Membros veem tudo que foi publicado, inclusive os destaques (tier public).
   app.get('/daily', { onRequest: [app.requireMember] }, async (request, reply) => {
     const query = validate(radarDailyQuerySchema, request.query, reply);
     if (!query) return;
 
-    const base = and(eq(radarItems.status, 'approved'), eq(radarItems.tier, 'members'));
+    const base = eq(radarItems.status, 'approved');
 
     // janela: últimos N dias (ver todos) OU um dia específico (default hoje, fuso SP)
     const window = query.days
